@@ -1,13 +1,12 @@
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.List;
 import java.util.Scanner;
 
 public class LogFileFinder {
 
-    private final int BUFFER_SIZE = 4096;
-    private final int PREVIEW_SIZE = 2000;
+    private static final int BUFFER_SIZE = 4096;
+    private static final int PREVIEW_SIZE = 2000;
     private final Scanner scanner;
     private long fileSize;
     private long defaultLower;
@@ -36,9 +35,14 @@ public class LogFileFinder {
     }
 
     public void run(String[] args) throws IOException {
-        if (args.length < 1 || args.length > 3) {
-            System.out.println("Usage: java LogFileFinder <path_to_log_file> [initial_lower_bound] [initial_upper_bound]");
+        if (args.length < 1 || args.length > 5) {
+            System.out.println("Usage: java LogFileFinder <path_to_log_file> [initial_lower_bound] [initial_upper_bound] [auto] [search_string]");
+            System.out.println("If 'auto' is the fourth argument, the program will automatically iterate through the file to find the first line that contains the search string.");
             System.exit(1);
+        }
+        if (args.length == 5) {
+            mode = SearchMode.AUTOMATIC;
+            searchString = args[4];
         }
 
         logFilePath = args[0];
@@ -52,8 +56,16 @@ public class LogFileFinder {
         defaultLower = args.length >= 2 ? Long.parseLong(args[1]) : 0;
         defaultUpper = args.length == 3 ? Long.parseLong(args[2]) : fileSize;
 
-        lower = getUserInput("Enter the initial lower bound (in bytes)", defaultLower, 0, fileSize);
-        upper = getUserInput("Enter the initial upper bound (in bytes)", defaultUpper, lower, fileSize);
+        if (mode == SearchMode.AUTOMATIC) {
+            System.out.println("Searching for string: " + searchString);
+            System.out.println("Lower bound: " + defaultLower);
+            System.out.println("Upper bound: " + defaultUpper);
+            lower = defaultLower;
+            upper = defaultUpper;
+        } else {
+            lower = getUserInput("Enter the initial lower bound (in bytes)", defaultLower, 0, fileSize);
+            upper = getUserInput("Enter the initial upper bound (in bytes)", defaultUpper, lower, fileSize);
+        }
 
         previewBounds(logFile, lower, upper);
 
@@ -69,7 +81,7 @@ public class LogFileFinder {
                 }
             }
         }
-        System.out.println("Script completed.");
+//        System.out.println("Script completed.");
     }
 
     private boolean iterateAutomatically() throws IOException {
@@ -103,7 +115,7 @@ public class LogFileFinder {
         String secondLine = fileContentsLines[1];
 
         if (bounds < thresholdForRefinedSearch && !secondLine.contains(searchString)) {
-            System.out.println("Bounds are small enough to iterate. Refining.");
+//            System.out.println("Bounds are small enough to iterate. Refining.");
             String[] lines = fileContents.split("\n");
 
             if (lines.length <= 2) {
@@ -131,12 +143,12 @@ public class LogFileFinder {
 
             //find the first line that matches the search string, counting all the characters along the way
             int offset = 0;
-            for (int i = 0; i < lines.length; i++) {
-                if (lines[i].contains(searchString)) {
+            for (String line : lines) {
+                if (line.contains(searchString)) {
                     mid = mid + offset;
                     return true;
                 }
-                offset += lines[i].length() + 1;
+                offset += line.length() + 1;
             }
         }
 
@@ -152,7 +164,7 @@ public class LogFileFinder {
 
     private boolean iterateManually() throws IOException {
         mid = (lower + upper) / 2;
-        previewContent(logFile, mid, "Preview at Current Offset:");
+        previewContent(logFile, mid);
         long boundsSize = upper - lower;
         System.out.println("Current offset: " + mid + ", Bounds Size: " + boundsSize + ". Should I go (h)igher, (l)ower, (r)efine, (a)uto, or (q)uit? [h/l/r/q]");
         String response = scanner.nextLine().toLowerCase();
@@ -232,11 +244,9 @@ public class LogFileFinder {
         System.out.println("\n" + "=".repeat(40));
     }
 
-    private void previewContent(File file, long offset, String title) throws IOException {
+    private void previewContent(File file, long offset) throws IOException {
         System.out.println();
-        if (title != null) {
-            System.out.println(title);
-        }
+        System.out.println("Preview at Current Offset:");
         System.out.println("=".repeat(40));
         printFileContents(file, offset, BUFFER_SIZE);
         System.out.println("\n" + "=".repeat(40));
@@ -257,7 +267,7 @@ public class LogFileFinder {
     private String readFileContentsAtOffset(File file, long offset, int bytesToRead) throws IOException {
         long modifiedBytesToRead = Math.min(bytesToRead, (int) (upper - offset));
         if (modifiedBytesToRead > 0 && modifiedBytesToRead < bytesToRead) {
-            System.out.println("Reducing bytes to read from " + bytesToRead + " to " + modifiedBytesToRead);
+//            System.out.println("Reducing bytes to read from " + bytesToRead + " to " + modifiedBytesToRead);
             bytesToRead = (int) modifiedBytesToRead;
         }
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
