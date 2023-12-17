@@ -1,11 +1,11 @@
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.util.List;
 import java.util.Scanner;
 
 public class LogFileFinder {
 
-    public static final int CUSHION = 3000;
     private final int BUFFER_SIZE = 4096;
     private final int PREVIEW_SIZE = 2000;
     private final Scanner scanner;
@@ -14,6 +14,17 @@ public class LogFileFinder {
     private long defaultUpper;
     private long lower;
     private long upper;
+    private long mid;
+    private File logFile;
+    private String logFilePath;
+    private String searchString;
+
+    private enum SearchMode {
+        AUTOMATIC,
+        MANUAL
+    }
+
+    private SearchMode mode = SearchMode.MANUAL;
 
     public LogFileFinder() {
         this.scanner = new Scanner(System.in);
@@ -30,8 +41,8 @@ public class LogFileFinder {
             System.exit(1);
         }
 
-        String logFilePath = args[0];
-        File logFile = new File(logFilePath);
+        logFilePath = args[0];
+        logFile = new File(logFilePath);
         if (!logFile.isFile()) {
             System.out.println("File not found: " + logFilePath);
             return;
@@ -47,35 +58,133 @@ public class LogFileFinder {
         previewBounds(logFile, lower, upper);
 
         while (lower < upper) {
-            long mid = (lower + upper) / 2;
-            previewContent(logFile, mid, "Preview at Current Offset:");
-            long boundsSize = upper - lower;
-            System.out.println("Current offset: " + mid + ", Bounds Size: " + boundsSize + ". Should I go (h)igher, (l)ower, or (r)efine? [h/l/r/q]");
-            String response = scanner.nextLine().toLowerCase();
-
-            if (response.startsWith("h")) {
-                lower = mid + 1;
-            } else if (response.startsWith("l")) {
-                upper = mid - 1;
-            } else if (response.startsWith("r")) {
-                mid = promptUserForLineNumber(logFile, mid);
-
-                System.out.println("Found correct offset: " + mid);
-                System.out.println("Next time you run this script, you can use the following arguments to skip to this offset: \n\t" +
-                        logFilePath + " " + mid + " " + fileSize);
-
-                String ddCommand = String.format("dd if=%s of=%s.clip iflag=skip_bytes,count_bytes,fullblock bs=4096 skip=%s count=%s",
-                        logFilePath, logFilePath, defaultLower, mid - defaultLower);
-                System.out.println("Recommended dd command:\n\t" + ddCommand);
-                break;
-            } else if (response.startsWith("q")) {
-                System.out.println("Quitting (lower: " + lower + ", upper: " + upper + ", mid: " + mid + ").");
-                break;
+            if (mode == SearchMode.AUTOMATIC) {
+                if (iterateAutomatically()) {
+                    printDDCommand();
+                    break;
+                }
             } else {
-                System.out.println("Please answer higher, lower, or correct.");
+                if (iterateManually()) {
+                    break;
+                }
             }
         }
         System.out.println("Script completed.");
+    }
+
+    private boolean iterateAutomatically() throws IOException {
+        if (searchString == null) {
+            System.out.println("Starting automatic search. Will iterate through file to find first line that contains search string.");
+            System.out.println("Expecting the log file to have structure like this between lower and upper bounds.");
+            System.out.println("In this case, the search string is \"BBBBBBB\".");
+            System.out.println("AAAAAAA...");
+            System.out.println("AAAAAAA...");
+            System.out.println("AAAAAAA...");
+            System.out.println("...");
+            System.out.println("BBBBBBB...");
+            System.out.println("BBBBBBB...");
+            System.out.println("BBBBBBB...");
+
+            System.out.println("Enter the search string:");
+            searchString = scanner.nextLine().trim();
+        }
+        mid = (lower + upper) / 2;
+        int bounds = (int) (upper - lower);
+        int thresholdForRefinedSearch = BUFFER_SIZE * 10;
+        String fileContents = readFileContentsAtOffset(logFile, mid, thresholdForRefinedSearch);
+
+        String[] fileContentsLines = fileContents.split("\n");
+        if (fileContentsLines.length < 2) {
+            System.err.println("Expecting more lines within buffer size.");
+            System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
+            System.exit(1);
+        }
+        String firstLine = fileContentsLines[0]; //first line is likely partial
+        String secondLine = fileContentsLines[1];
+
+        if (bounds < thresholdForRefinedSearch && !secondLine.contains(searchString)) {
+            System.out.println("Bounds are small enough to iterate. Refining.");
+            String[] lines = fileContents.split("\n");
+
+            if (lines.length <= 2) {
+                System.err.println("Expecting more lines within buffer size.");
+                System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
+                System.exit(1);
+            }
+            //assert the first line does not match the search string
+            if (lines[0].contains(searchString)) {
+                System.err.println("First line contains search string. This typically should not happen.");
+                System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
+                System.exit(1);
+            }
+            //assert the second line does not match the search string
+            if (lines[1].contains(searchString)) {
+                System.err.println("Second line contains search string. This might be okay, but be careful");
+                System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
+            }
+            //assert the last line does match the search string
+            if (!lines[lines.length - 1].contains(searchString)) {
+                System.err.println("Last line does not contain search string. This typically should not happen.");
+                System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
+                System.exit(1);
+            }
+
+            //find the first line that matches the search string, counting all the characters along the way
+            int offset = 0;
+            for (int i = 0; i < lines.length; i++) {
+                if (lines[i].contains(searchString)) {
+                    mid = mid + offset;
+                    return true;
+                }
+                offset += lines[i].length() + 1;
+            }
+        }
+
+        if (secondLine.contains(searchString)) {
+            //go lower
+            upper = mid - 1;
+        } else {
+            //go higher
+            lower = mid + 1;
+        }
+        return false;
+    }
+
+    private boolean iterateManually() throws IOException {
+        mid = (lower + upper) / 2;
+        previewContent(logFile, mid, "Preview at Current Offset:");
+        long boundsSize = upper - lower;
+        System.out.println("Current offset: " + mid + ", Bounds Size: " + boundsSize + ". Should I go (h)igher, (l)ower, (r)efine, (a)uto, or (q)uit? [h/l/r/q]");
+        String response = scanner.nextLine().toLowerCase();
+
+        if (response.startsWith("h")) {
+            lower = mid + 1;
+        } else if (response.startsWith("l")) {
+            upper = mid - 1;
+        } else if (response.startsWith("r")) {
+            mid = promptUserForLineNumber(logFile, mid);
+
+            printDDCommand();
+            return true;
+        } else if (response.startsWith("q")) {
+            System.out.println("Quitting (lower: " + lower + ", upper: " + upper + ", mid: " + mid + ").");
+            return true;
+        } else if (response.startsWith("a")) {
+            mode = SearchMode.AUTOMATIC;
+        } else {
+            System.out.println("Please answer higher, lower, or correct.");
+        }
+        return false;
+    }
+
+    private void printDDCommand() {
+        System.out.println("Found offset: " + mid);
+        System.out.println("Next time you run this script, you can use the following arguments to skip to this offset: \n\t" +
+                logFilePath + " " + mid + " " + fileSize);
+
+        String ddCommand = String.format("dd if=%s of=%s.clip iflag=skip_bytes,count_bytes,fullblock bs=4096 skip=%s count=%s",
+                logFilePath, logFilePath, defaultLower, mid - defaultLower);
+        System.out.println("Recommended dd command:\n\t" + ddCommand);
     }
 
     private long promptUserForLineNumber(File logFile, long mid) throws IOException {
