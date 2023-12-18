@@ -3,7 +3,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.Scanner;
 
-public class LogFileFinder {
+public class LogFileSplitter {
 
     private static final int BUFFER_SIZE = 4096;
     private static final int PREVIEW_SIZE = 2000;
@@ -25,18 +25,18 @@ public class LogFileFinder {
 
     private SearchMode mode = SearchMode.MANUAL;
 
-    public LogFileFinder() {
+    public LogFileSplitter() {
         this.scanner = new Scanner(System.in);
     }
 
     public static void main(String[] args) throws IOException {
-        LogFileFinder finder = new LogFileFinder();
+        LogFileSplitter finder = new LogFileSplitter();
         finder.run(args);
     }
 
     public void run(String[] args) throws IOException {
         if (args.length < 1 || args.length > 5) {
-            System.out.println("Usage: java LogFileFinder <path_to_log_file> [initial_lower_bound] [initial_upper_bound] [auto] [search_string]");
+            System.out.println("Usage: java LogFileSplitter <path_to_log_file> [initial_lower_bound] [initial_upper_bound] [auto] [search_string]");
             System.out.println("If 'auto' is the fourth argument, the program will automatically iterate through the file to find the first line that contains the search string.");
             System.exit(1);
         }
