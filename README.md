@@ -16,12 +16,12 @@ Usage
 -----
 
 ```
-java LogFileSplitter <log file>  [initial_lower_bound] [initial_upper_bound]
+java LogFileSplitter.java <log file>  [initial_lower_bound] [initial_upper_bound]
 ```
 
 Or using "automatic" mode:
 ```
-java LogFileSplitter <log file>  initial_lower_bound initial_upper_bound auto search_string 
+java LogFileSplitter.java <log file>  initial_lower_bound initial_upper_bound auto search_string 
 ```
 
 Automatic Mode
