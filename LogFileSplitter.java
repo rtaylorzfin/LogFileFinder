@@ -54,7 +54,7 @@ public class LogFileSplitter {
 
         fileSize = logFile.length();
         defaultLower = args.length >= 2 ? Long.parseLong(args[1]) : 0;
-        defaultUpper = args.length == 3 ? Long.parseLong(args[2]) : fileSize;
+        defaultUpper = args.length >= 3 ? Long.parseLong(args[2]) : fileSize;
 
         if (mode == SearchMode.AUTOMATIC) {
             System.out.println("Searching for string: " + searchString);
