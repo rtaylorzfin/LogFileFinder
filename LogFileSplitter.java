@@ -23,7 +23,13 @@ public class LogFileSplitter {
         MANUAL
     }
 
+    private enum SearchDirection {
+        FORWARD,
+        BACKWARD
+    }
+
     private SearchMode mode = SearchMode.MANUAL;
+    private SearchDirection lastDirection = SearchDirection.FORWARD;
 
     public LogFileSplitter() {
         this.scanner = new Scanner(System.in);
@@ -87,20 +93,21 @@ public class LogFileSplitter {
     private boolean iterateAutomatically() throws IOException {
         if (searchString == null) {
             System.out.println("Starting automatic search. Will iterate through file to find first line that contains search string.");
-            System.out.println("Expecting the log file to have structure like this between lower and upper bounds.");
-            System.out.println("In this case, the search string is \"BBBBBBB\".");
-            System.out.println("AAAAAAA...");
-            System.out.println("AAAAAAA...");
-            System.out.println("AAAAAAA...");
+            System.out.println("Expecting the log file to have structure like the following between lower and upper bounds.");
+            System.out.println("Specifically, the search string needs to only appear after the line number we are searching for and always appear in each line after that.");
+            System.out.println("In this example, the search string is \"BBBBBBB\".");
+            System.out.println("...AAAAAAA...");
+            System.out.println("...AAAAAAA...");
+            System.out.println("...AAAAAAA...");
             System.out.println("...");
-            System.out.println("BBBBBBB...");
-            System.out.println("BBBBBBB...");
-            System.out.println("BBBBBBB...");
+            System.out.println("...BBBBBBB...");
+            System.out.println("...BBBBBBB...");
+            System.out.println("...BBBBBBB...");
 
             System.out.println("Enter the search string:");
             searchString = scanner.nextLine().trim();
         }
-        mid = (lower + upper) / 2;
+        mid = findMidPoint(lower, upper);
         int bounds = (int) (upper - lower);
         int thresholdForRefinedSearch = BUFFER_SIZE * 10;
         String fileContents = readFileContentsAtOffset(logFile, mid, thresholdForRefinedSearch);
@@ -112,9 +119,8 @@ public class LogFileSplitter {
             System.exit(1);
         }
         String firstLine = fileContentsLines[0]; //first line is likely partial
-        String secondLine = fileContentsLines[1];
 
-        if (bounds < thresholdForRefinedSearch && !secondLine.contains(searchString)) {
+        if (bounds < thresholdForRefinedSearch && !firstLine.contains(searchString)) {
 //            System.out.println("Bounds are small enough to iterate. Refining.");
             String[] lines = fileContents.split("\n");
 
@@ -152,18 +158,20 @@ public class LogFileSplitter {
             }
         }
 
-        if (secondLine.contains(searchString)) {
+        if (firstLine.contains(searchString)) {
             //go lower
             upper = mid - 1;
+            lastDirection = SearchDirection.BACKWARD;
         } else {
             //go higher
             lower = mid + 1;
+            lastDirection = SearchDirection.FORWARD;
         }
         return false;
     }
 
     private boolean iterateManually() throws IOException {
-        mid = (lower + upper) / 2;
+        mid = findMidPoint(lower, upper);
         previewContent(logFile, mid);
         long boundsSize = upper - lower;
         System.out.println("Current offset: " + mid + ", Bounds Size: " + boundsSize + ". Should I go (h)igher, (l)ower, (r)efine, (a)uto, or (q)uit? [h/l/r/q]");
@@ -171,11 +179,12 @@ public class LogFileSplitter {
 
         if (response.startsWith("h")) {
             lower = mid + 1;
+            lastDirection = SearchDirection.FORWARD;
         } else if (response.startsWith("l")) {
             upper = mid - 1;
+            lastDirection = SearchDirection.BACKWARD;
         } else if (response.startsWith("r")) {
             mid = promptUserForLineNumber(logFile, mid);
-
             printDDCommand();
             return true;
         } else if (response.startsWith("q")) {
@@ -189,6 +198,27 @@ public class LogFileSplitter {
         return false;
     }
 
+    private long findMidPoint(long lower, long upper) throws IOException {
+        long roughMid = (lower + upper) / 2;
+        if (lastDirection == SearchDirection.FORWARD) {
+            //move the roughMid backwards until we find a newline
+            while (roughMid > lower && roughMid < upper && !isNewline(roughMid)) {
+                roughMid--;
+            }
+        } else {
+            //move the roughMid forwards until we find a newline
+            while (roughMid > lower && roughMid < upper && !isNewline(roughMid)) {
+                roughMid++;
+            }
+        }
+        return roughMid;
+    }
+
+    private boolean isNewline(long roughMid) throws IOException {
+        String fileContentsAtOffset = readFileContentsAtOffset(logFile, roughMid, 1);
+        return fileContentsAtOffset.equals("\n");
+    }
+
     private void printDDCommand() {
         System.out.println("Found offset: " + mid);
         System.out.println("Next time you run this script, you can use the following arguments to skip to this offset: \n\t" +
@@ -197,6 +227,7 @@ public class LogFileSplitter {
         String ddCommand = String.format("dd if=%s of=%s.clip iflag=skip_bytes,count_bytes,fullblock bs=4096 skip=%s count=%s",
                 logFilePath, logFilePath, defaultLower, mid - defaultLower);
         System.out.println("Recommended dd command:\n\t" + ddCommand);
+        System.out.println("Or with docker: \n\t" + "docker run --rm -it -v `pwd`:/app alpine sh -c 'cd /app; " + ddCommand + "'");
     }
 
     private long promptUserForLineNumber(File logFile, long mid) throws IOException {
@@ -252,16 +283,20 @@ public class LogFileSplitter {
         System.out.println("\n" + "=".repeat(40));
     }
 
+//    private void printFileContents(File file, long offset, int bytesToRead) throws IOException {
+//        String buffer = readFileContentsAtOffset(file, offset, bytesToRead);
+//        int newlineIndex = findFirstNewline(buffer);
+//        if (newlineIndex != -1) {
+//            System.out.println("[possibly partial line (" + (newlineIndex + 1) + " chars)] " + buffer.substring(0, newlineIndex));
+//            String substring = buffer.substring(newlineIndex + 1);
+//            System.out.print(substring);
+//        } else {
+//            System.out.print(buffer);
+//        }
+//    }
     private void printFileContents(File file, long offset, int bytesToRead) throws IOException {
         String buffer = readFileContentsAtOffset(file, offset, bytesToRead);
-        int newlineIndex = findFirstNewline(buffer);
-        if (newlineIndex != -1) {
-            System.out.println("[possibly partial line (" + (newlineIndex + 1) + " chars)] " + buffer.substring(0, newlineIndex));
-            String substring = buffer.substring(newlineIndex + 1);
-            System.out.print(substring);
-        } else {
-            System.out.print(buffer);
-        }
+        System.out.print(buffer);
     }
 
     private String readFileContentsAtOffset(File file, long offset, int bytesToRead) throws IOException {
