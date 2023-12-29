@@ -99,7 +99,6 @@ public class LogFileSplitter {
             System.out.println("...AAAAAAA...");
             System.out.println("...AAAAAAA...");
             System.out.println("...AAAAAAA...");
-            System.out.println("...");
             System.out.println("...BBBBBBB...");
             System.out.println("...BBBBBBB...");
             System.out.println("...BBBBBBB...");
@@ -137,8 +136,8 @@ public class LogFileSplitter {
             }
             //assert the second line does not match the search string
             if (lines[1].contains(searchString)) {
-                System.err.println("Second line contains search string. This might be okay, but be careful");
-                System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
+//                System.err.println("Second line contains search string. This might be okay, but be careful");
+//                System.err.println("Mid: " + mid + ", Lower: " + lower + ", Upper: " + upper + ", Bounds: " + bounds);
             }
             //assert the last line does match the search string
             if (!lines[lines.length - 1].contains(searchString)) {
@@ -174,7 +173,8 @@ public class LogFileSplitter {
         mid = findMidPoint(lower, upper);
         previewContent(logFile, mid);
         long boundsSize = upper - lower;
-        System.out.println("Current offset: " + mid + ", Bounds Size: " + boundsSize + ". Should I go (h)igher, (l)ower, (r)efine, (a)uto, or (q)uit? [h/l/r/q]");
+        System.out.println("Current offset: " + mid + ", Bounds Size: " + boundsSize + " (" + lower + " to " + upper + ")" + ". \n" +
+                "Should I go (h)igher, (l)ower, (r)efine, (a)uto, (p)review, or (q)uit? [h/l/r/q]");
         String response = scanner.nextLine().toLowerCase();
 
         if (response.startsWith("h")) {
@@ -192,6 +192,8 @@ public class LogFileSplitter {
             return true;
         } else if (response.startsWith("a")) {
             mode = SearchMode.AUTOMATIC;
+        } else if (response.startsWith("p")) {
+            previewBounds(logFile, lower, upper);
         } else {
             System.out.println("Please answer higher, lower, or correct.");
         }
